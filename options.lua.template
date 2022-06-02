@@ -1,0 +1,7 @@
+return {
+    token = "",
+	errorWebhook = {
+		id = "",
+		token = ""
+	},
+}

@@ -1,0 +1,26 @@
+{
+    "Lua.runtime.version": "LuaJIT",
+    "Lua.completion.requireSeparator": "/",
+    "Lua.runtime.path": [
+        "?.lua",
+        "?/init.lua",
+        "deps/?/init.lua",
+        "deps/?.lua"
+    ],
+    "Lua.workspace.library": [
+        "../deps",
+        "../libs",
+        "${3rd}/Luvit/library"
+    ],
+    "Lua.runtime.builtin": {
+        "basic": "disable",
+        "package": "disable",
+        "string": "disable",
+        "table": "disable"
+    },
+    "Lua.diagnostics.globals": [
+        "p",
+        "args"
+    ],
+    "Lua.workspace.checkThirdParty": false
+}

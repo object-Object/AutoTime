@@ -1,0 +1,15 @@
+deps/
+lit
+luvit
+luvi
+*.bak
+*.log
+discordia.json
+gateway.json
+*.so
+*.db
+options.lua
+
+# for Sumneko's Lua
+.vscode/**/*
+!.vscode/settings.json
