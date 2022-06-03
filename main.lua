@@ -35,17 +35,17 @@ local function parseTimes(content, timezone)
     for original, hour, min, sec, ampm, hourAlt, ampmAlt in rex.gmatch(content, patt, "m") do
         local showSeconds = not not sec
 
-        hour = tonumber(hour) or tonumber(hourAlt)
+        hour = tonumber(hour) or tonumber(hourAlt) -- if hour is missing, the regex doesn't match
         min = tonumber(min) or 0
         sec = tonumber(sec) or 0
         ampm = ampm or ampmAlt
 
-        if ampm then
-            if ampm == "a" and hour == 12 then
-                hour = 0
-            elseif ampm == "p" and hour ~= 12 then
-                hour = hour + 12
-            end
+        if ampm and (hour < 1 or hour > 12) then
+            goto continue
+        elseif ampm == "a" and hour == 12 then -- if ampm is missing then it's nil, which is valid to compare
+            hour = 0
+        elseif ampm == "p" and hour ~= 12 then
+            hour = hour + 12
         end
 
         if hour < 0 or hour > 23
