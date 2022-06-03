@@ -31,7 +31,7 @@ local timeMessages = {}
 ---@return string[]
 local function parseTimes(content, timezone)
     local lines = {}
-    local patt = "(?:\\W|^)((?:([012]?\\d):(\\d\\d)(?::(\\d\\d))?\\s*(?:([ap])\\.?m\\.?)?)|(?:([01]?\\d)\\s*([ap])\\.?m\\.?))(?:\\W|$)"
+    local patt = "(?<!\\w)((?:([012]?\\d):(\\d\\d)(?::(\\d\\d))?\\s*(?:([ap])\\.?m\\.?)?)|(?:([01]?\\d)\\s*([ap])\\.?m\\.?))(?!\\w)"
     for original, hour, min, sec, ampm, hourAlt, ampmAlt in rex.gmatch(content, patt, "m") do
         local showSeconds = not not sec
 
