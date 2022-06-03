@@ -9,7 +9,7 @@ conn:exec(setup)
 
 local stmts = {
     getUserTimezone = conn:prepare("SELECT timezone FROM users WHERE user_id = ?"),
-    setUserTimezone = conn:prepare("UPDATE users SET timezone = ? WHERE user_id = ?"),
+    setUserTimezone = conn:prepare("INSERT INTO users (user_id, timezone) VALUES (?001, ?002) ON CONFLICT (user_id) DO UPDATE SET timezone = ?002"),
     clearUserTimezone = conn:prepare("UPDATE users SET timezone = NULL WHERE user_id = ?"),
     userExists = conn:prepare("SELECT EXISTS(SELECT 1 FROM users WHERE user_id = ?)"),
     insertUser = conn:prepare("INSERT INTO users (user_id, timezone) VALUES (?, ?)"),
@@ -27,7 +27,7 @@ end
 ---@param id string
 ---@param timezone string
 db.setUserTimezone = function(id, timezone)
-    stmts.setUserTimezone:reset():bind(timezone, id):step()
+    stmts.setUserTimezone:reset():bind(id, timezone):step()
 end
 
 ---@param id string
