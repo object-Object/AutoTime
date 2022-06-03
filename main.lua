@@ -9,6 +9,7 @@ local options = require("options")
 local db = require("db")
 local autocomplete = require("autocomplete")
 
+local clock = discordia.Clock()
 local client = discordia.Client():useApplicationCommands()
 ---@diagnostic disable-next-line: undefined-field
 local commandType = discordia.enums.appCommandType
@@ -138,47 +139,69 @@ local function replyEphemeral(interaction, description, color)
     }, true)
 end
 
+local function setGame()
+    client:setGame{
+        name = "the clock",
+        type = 3, -- watching
+    }
+end
 
-client:on("ready", function()
-    for guild in client.guilds:iter() do
-        local command, err = client:createGuildApplicationCommand(guild.id, {
-            type = commandType.chatInput,
-            name = "timezone",
-            description = "Get, set, or clear your timezone, or see a list of choices",
-            options = {
-                {
-                    type = optionType.subCommand,
-                    name = "get",
-                    description = "Display your current timezone",
-                },
-                {
-                    type = optionType.subCommand,
-                    name = "clear",
-                    description = "Clear your timezone so the bot stops sending timestamps for you",
-                },
-                {
-                    type = optionType.subCommand,
-                    name = "list",
-                    description = "Display all available timezones from the IANA / tzdata / zoneinfo database (eg. America/New_York)",
-                },
-                {
-                    type = optionType.subCommand,
-                    name = "set",
-                    description = "Set your timezone so the bot knows how to make timestamps for you",
-                    options = {
-                        {
-                            type = optionType.string,
-                            name = "timezone",
-                            description = "Your IANA / tzdata / zoneinfo timezone (eg. America/New_York) — CASE SENSITIVE!",
-                            required = true,
-                            autocomplete = true,
-                        },
+---@param guild Guild
+local function initializeCommands(guild)
+    local command, err = client:createGuildApplicationCommand(guild.id, {
+        type = commandType.chatInput,
+        name = "timezone",
+        description = "Get, set, or clear your timezone, or see a list of choices",
+        options = {
+            {
+                type = optionType.subCommand,
+                name = "get",
+                description = "Display your current timezone",
+            },
+            {
+                type = optionType.subCommand,
+                name = "clear",
+                description = "Clear your timezone so the bot stops sending timestamps for you",
+            },
+            {
+                type = optionType.subCommand,
+                name = "list",
+                description = "Display all available timezones from the IANA / tzdata / zoneinfo database (eg. America/New_York)",
+            },
+            {
+                type = optionType.subCommand,
+                name = "set",
+                description = "Set your timezone so the bot knows how to make timestamps for you",
+                options = {
+                    {
+                        type = optionType.string,
+                        name = "timezone",
+                        description = "Your IANA / tzdata / zoneinfo timezone (eg. America/New_York) — CASE SENSITIVE!",
+                        required = true,
+                        autocomplete = true,
                     },
                 },
             },
-        })
-        if not command then print(err) end
+        },
+    })
+    if not command then logError(guild, err) end
+end
+
+
+clock:on("hour", function()
+    setGame()
+end)
+
+client:on("ready", function()
+    setGame()
+    for guild in client.guilds:iter() do
+        initializeCommands(guild)
     end
+end)
+
+client:on("guildCreate", function(guild)
+    local success, err = xpcall(initializeCommands, debug.traceback, guild)
+    if not success then logError(guild, err) end
 end)
 
 client:on("slashCommand", function(interaction, command, args)
@@ -277,4 +300,5 @@ client:on("messageUpdate", function(message)
 end)
 
 
+clock:start()
 client:run("Bot "..options.token)
