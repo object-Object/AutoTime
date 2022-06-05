@@ -119,12 +119,28 @@ end
 ---@param timezone string
 ---@return string
 local function getTimezoneCheckString(timezone)
-    local date = tz.date("*t", nil, timezone)
-    date.hour = 6
-    date.min = 0
-    date.sec = 0
-    local timestamp = tz.time(date, timezone)
-    return "If this timezone is correct, this timestamp should say 6:00 am: <t:"..timestamp..":t>"
+    local year = os.date("*t").year
+
+    local janDate = { year = year, month = 1, day = 10, hour = 6, min = 0, sec = 0 }
+    local julDate = { year = year, month = 7, day = 10, hour = 6, min = 0, sec = 0 }
+
+    local janTimestamp = tz.time(janDate, timezone)
+    local julTimestamp = tz.time(julDate, timezone)
+
+    local janOffset = tz.type(janTimestamp, timezone)
+    local julOffset = tz.type(julTimestamp, timezone)
+
+    local observesDSTMessage
+    if janOffset ~= julOffset then
+        observesDSTMessage = "This timezone **observes Daylight Savings Time** in the summer. If only one of the above timestamps is correct, you probably need to choose a different timezone that has the same UTC offset but does not observe DST in the summer."
+    else
+        observesDSTMessage = "This timezone **does not observe Daylight Savings Time** in the summer. If only one of the above timestamps is correct, you probably need to choose a different timezone that has the same UTC offset but observes DST in the summer."
+    end
+
+    return ([[If this timezone is correct, both of these timestamps should say **6:00 am**:
+<t:%d:f> (UTC%+g)
+<t:%d:f> (UTC%+g)
+%s]]):format(janTimestamp, janOffset/3600, julTimestamp, julOffset/3600, observesDSTMessage)
 end
 
 ---@param interaction any
