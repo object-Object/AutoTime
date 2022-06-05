@@ -94,7 +94,7 @@ local function replyWithTimestamps(message)
         timeMessages[message.id] = false -- false means deleted or timed out, nil means never replied to
         reply:delete()
     else
-        reply:removeReaction("❌")
+        reply:removeReaction("❌") -- if the message was deleted during the timeout, we'll just get a 404 here, which is fine
     end
 end
 
@@ -107,7 +107,7 @@ local function logError(guild, err)
 		embeds = {{
 			title = "Bot crashed!",
 			description = "```\n"..err.."```",
-			color = discordia.Color.fromHex("ff0000").value,
+			color = colors.failure,
 			timestamp = discordia.Date():toISO('T', 'Z'),
 			footer = guild and {
 				text = "Guild: "..guild.name.." ("..guild.id..")"
@@ -277,11 +277,10 @@ end)
 client:on("messageUpdate", function(message)
     local success, err = xpcall(function()
         local replyId = timeMessages[message.id]
-        local reply = replyId and message.channel:getMessage(replyId)
-
-        if reply == false then -- user deleted with x, don't send another time message
-            return
-        elseif reply == nil then -- no time message exists, send a new one as if it were a new message
+        if replyId == false then return end -- they hit the x, don't send a new message
+        
+        local reply = message.channel:getMessage(replyId)
+        if not reply then -- no time message exists, send a new one as if it were a new message
             replyWithTimestamps(message)
         else
             local timezone = db.getUserTimezone(message.author.id)
@@ -294,6 +293,20 @@ client:on("messageUpdate", function(message)
             else
                 reply:setContent(table.concat(lines, "\n"))
             end
+        end
+    end, debug.traceback)
+    if not success then logError(message.guild, err) end
+end)
+
+---@param message Message
+client:on("messageDelete", function(message)
+    local success, err = xpcall(function()
+        local replyId = timeMessages[message.id]
+        timeMessages[message.id] = nil
+
+        local reply = message.channel:getMessage(replyId)
+        if reply then
+            reply:delete()
         end
     end, debug.traceback)
     if not success then logError(message.guild, err) end

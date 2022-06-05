@@ -1,11 +1,16 @@
 local sql = require("sqlite3")
 local fs = require("fs")
+local options = require("options")
 
-local conn = sql.open("bot.db")
+local dbFilename = options.dbFilename or "bot.db";
+local doInitialize = not fs.existsSync(dbFilename);
 
-local setup = fs.readFileSync("setup.sql")
-assert(setup and type(setup) == "string" and setup ~= "", "Failed to read setup.sql")
-conn:exec(setup)
+local conn = sql.open(dbFilename)
+if doInitialize then
+    local setup = fs.readFileSync("setup.sql")
+    assert(setup and type(setup) == "string" and setup ~= "", "Failed to read setup.sql")
+    conn:exec(setup)
+end
 
 local stmts = {
     getUserTimezone = conn:prepare("SELECT timezone FROM users WHERE user_id = ?"),
