@@ -42,12 +42,14 @@ parser.parseTimes = function(content, timezone, ignoreLineTimezones)
             end
         end
 
-        if ampm and (hour < 1 or hour > 12) then
-            goto continue
-        elseif (ampm == "a" or ampm == "A") and hour == 12 then -- if ampm is missing then it's nil, which is valid to compare
-            hour = 0
-        elseif (ampm == "p" or ampm == "P") and hour ~= 12 then
-            hour = hour + 12
+        if ampm then
+            if hour < 1 or hour > 12 then
+                goto continue
+            elseif ampm:lower() == "a" and hour == 12 then -- if ampm is missing then it's nil, which is valid to compare
+                hour = 0
+            elseif ampm:lower() == "p" and hour ~= 12 then
+                hour = hour + 12
+            end
         end
 
         if hour < 0 or hour > 23
