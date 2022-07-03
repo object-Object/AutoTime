@@ -107,6 +107,17 @@ for _, timezone in pairs(allTimezones) do
     autocomplete.fromLowercase[timezone:lower()] = timezone
 end
 
+autocomplete.aliases = {
+    cst = "US/Central",
+    cdt = "US/Central",
+    est = "US/Eastern",
+    edt = "US/Eastern",
+    mst = "US/Mountain",
+    mdt = "US/Mountain",
+    pst = "US/Pacific",
+    pdt = "US/Pacific",
+}
+
 ---@param value string
 ---@param maxValues number?
 ---@return string[]

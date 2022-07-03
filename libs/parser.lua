@@ -2,6 +2,8 @@ local rex = require("rex")
 local tz = require("tz")
 local autocomplete = require("autocomplete")
 
+local f = string.format
+
 local parser = {}
 
 ---@param timezone string
@@ -18,20 +20,26 @@ parser.parseTimes = function(content, timezone, ignoreLineTimezones)
     local patt = "(?<!\\w)((?:(?:([012]?\\d):(\\d\\d)(?::(\\d\\d))? *(?:([apAP])\\.?[mM]\\.?)?)|(?:([01]?\\d) *([apAP])\\.?[mM]\\.?))(?: +([a-zA-Z\\/\\_]+))?)(?!\\w)"
     for original, hour, min, sec, ampm, hourAlt, ampmAlt, lineTimezone in rex.gmatch(content, patt, "m") do
         local showSeconds = not not sec
-
+        
         hour = tonumber(hour) or tonumber(hourAlt) -- if hour is missing, the regex doesn't match
         min = tonumber(min) or 0
         sec = tonumber(sec) or 0
         ampm = ampm or ampmAlt
+        
+        local aliasTimezone
+        local tzTimezone = timezone
+        if lineTimezone then
+            if not ignoreLineTimezones then
+                local uppercaseTimezone = autocomplete.fromLowercase[lineTimezone:lower()]
+                aliasTimezone = autocomplete.aliases[lineTimezone:lower()]
+                tzTimezone = aliasTimezone or uppercaseTimezone or lineTimezone
+            end
 
-        local uppercaseLineTimezone = lineTimezone and autocomplete.fromLowercase[lineTimezone:lower()]
-        if uppercaseLineTimezone then -- don't clobber lineTimezone if it's not in fromLowercase
-            lineTimezone = uppercaseLineTimezone
-        end
-
-        if lineTimezone and (ignoreLineTimezones or not parser.validateTimezone(lineTimezone)) then
-            lineTimezone = nil
-            original = original:gsub(" +%S+$", "")
+            if ignoreLineTimezones or not parser.validateTimezone(tzTimezone) then
+                aliasTimezone = nil
+                tzTimezone = timezone
+                original = original:gsub(" +%S+$", "")
+            end
         end
 
         if ampm and (hour < 1 or hour > 12) then
@@ -48,14 +56,20 @@ parser.parseTimes = function(content, timezone, ignoreLineTimezones)
             goto continue
         end
 
-        local date = tz.date("*t", nil, lineTimezone or timezone)
+        local date = tz.date("*t", nil, tzTimezone)
         date.hour = hour
         date.min = min
         date.sec = sec
 
-        local timestamp = tz.time(date, lineTimezone or timezone)
+        local timestamp = tz.time(date, tzTimezone)
         local flag = showSeconds and "T" or "t"
-        table.insert(lines, string.format("%s → <t:%d:%s>", original, timestamp, flag))
+        table.insert(lines, f(
+            "%s%s → <t:%d:%s>",
+            original,
+            aliasTimezone and f(" (assuming %s)", aliasTimezone) or "",
+            timestamp,
+            flag
+        ))
 
         ::continue::
     end
