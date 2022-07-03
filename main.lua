@@ -1,13 +1,12 @@
 ---@type discordia
 local discordia = require("discordia")
+discordia.extensions()
 local dcmd = require("discordia-commands")
-local rex = require("rex")
 local tz = require("tz")
-local pp = require("pretty-print")
-
 local options = require("options")
 local db = require("db")
 local autocomplete = require("autocomplete")
+local parser = require("parser")
 
 local clock = discordia.Clock()
 local client = discordia.Client():useApplicationCommands()
@@ -22,50 +21,32 @@ local colors = {
     info = 0x0080ff,
 }
 
----@type table<string, string>
+---@type table<string, string | false>
 local timeMessages = {}
 
 
----@param content string
----@param timezone string
----@return string[]
-local function parseTimes(content, timezone)
-    local lines = {}
-    local patt = "(?<!\\w)((?:([012]?\\d):(\\d\\d)(?::(\\d\\d))?\\s*(?:([ap])\\.?m\\.?)?)|(?:([01]?\\d)\\s*([ap])\\.?m\\.?))(?!\\w)"
-    for original, hour, min, sec, ampm, hourAlt, ampmAlt in rex.gmatch(content, patt, "m") do
-        local showSeconds = not not sec
-
-        hour = tonumber(hour) or tonumber(hourAlt) -- if hour is missing, the regex doesn't match
-        min = tonumber(min) or 0
-        sec = tonumber(sec) or 0
-        ampm = ampm or ampmAlt
-
-        if ampm and (hour < 1 or hour > 12) then
-            goto continue
-        elseif ampm == "a" and hour == 12 then -- if ampm is missing then it's nil, which is valid to compare
-            hour = 0
-        elseif ampm == "p" and hour ~= 12 then
-            hour = hour + 12
-        end
-
-        if hour < 0 or hour > 23
-        or min  < 0 or min  > 59
-        or sec  < 0 or sec  > 59 then
-            goto continue
-        end
-
-        local date = tz.date("*t", nil, timezone)
-        date.hour = hour
-        date.min = min
-        date.sec = sec
-
-        local timestamp = tz.time(date, timezone)
-        local flag = showSeconds and "T" or "t"
-        table.insert(lines, string.format("%s → <t:%d:%s>", original, timestamp, flag))
-
-        ::continue::
+---@param description string
+---@param color number
+---@param isEphemeral boolean?
+local function replyTo(interaction, description, color, isEphemeral)
+    if isEphemeral == nil then
+        isEphemeral = true
     end
-    return lines
+    interaction:reply({
+        embed = {
+            description = description,
+            color = color,
+        }
+    }, isEphemeral)
+end
+
+---@param timezone string
+local function validateTimezoneOrReply(timezone, interaction)
+    if not parser.validateTimezone(timezone) then
+        replyTo(interaction, "`"..timezone.."` is not a valid timezone.", colors.failure)
+        return false
+    end
+    return true
 end
 
 ---@param message Message
@@ -73,12 +54,12 @@ local function replyWithTimestamps(message)
     local timezone = db.getUserTimezone(message.author.id)
     if not timezone then return end
 
-    local lines = parseTimes(message.content:lower(), timezone)
+    local lines = parser.parseTimes(message.content, timezone)
     if #lines == 0 then return end
 
     local reply = message:reply{
         content = table.concat(lines, "\n"),
-        reference = {
+        reference = message and {
             message = message,
             mention = false
         }
@@ -86,7 +67,7 @@ local function replyWithTimestamps(message)
     reply:addReaction("❌")
     timeMessages[message.id] = reply.id
 
-    local userReacted = message.client:waitFor("reactionAdd", 60000, function(r, u)
+    local userReacted = client:waitFor("reactionAdd", 60000, function(r, u)
         return u == message.author.id and r.message == reply and r.emojiHash == "❌"
     end)
 
@@ -99,7 +80,7 @@ local function replyWithTimestamps(message)
 end
 
 ---@param guild Guild
----@param err string
+---@param err string?
 local function logError(guild, err)
     print("Bot crashed!\n"..err)
     ---@diagnostic disable-next-line: undefined-field
@@ -143,18 +124,6 @@ local function getTimezoneCheckString(timezone)
 %s]]):format(janTimestamp, janOffset/3600, julTimestamp, julOffset/3600, observesDSTMessage)
 end
 
----@param interaction any
----@param description string
----@param color number
-local function replyEphemeral(interaction, description, color)
-    interaction:reply({
-        embed = {
-            description = description,
-            color = color,
-        }
-    }, true)
-end
-
 local function setGame()
     client:setGame{
         name = "the clock",
@@ -167,7 +136,7 @@ local function initializeCommands(guild)
     local command, err = client:createGuildApplicationCommand(guild.id, {
         type = commandType.chatInput,
         name = "timezone",
-        description = "Get, set, or clear your timezone, or see a list of choices",
+        description = ".",
         options = {
             {
                 type = optionType.subCommand,
@@ -182,7 +151,7 @@ local function initializeCommands(guild)
             {
                 type = optionType.subCommand,
                 name = "list",
-                description = "Display all available timezones from the IANA / tzdata / zoneinfo database (eg. America/New_York)",
+                description = "Display all available timezones from the IANA database (eg. US/Eastern)",
             },
             {
                 type = optionType.subCommand,
@@ -192,9 +161,57 @@ local function initializeCommands(guild)
                     {
                         type = optionType.string,
                         name = "timezone",
-                        description = "Your IANA / tzdata / zoneinfo timezone (eg. America/New_York) — CASE SENSITIVE!",
+                        description = "Your IANA timezone (eg. US/Eastern) — CASE SENSITIVE!",
                         required = true,
                         autocomplete = true,
+                    },
+                },
+            },
+        },
+    })
+    if not command then logError(guild, err) end
+
+    command, err = client:createGuildApplicationCommand(guild.id, {
+        type = commandType.chatInput,
+        name = "time",
+        description = ".",
+        options = {
+            {
+                type = optionType.subCommand,
+                name = "from",
+                description = "Convert a time from a specific IANA timezone",
+                options = {
+                    {
+                        type = optionType.string,
+                        name = "timezone",
+                        description = "The desired IANA timezone (eg. US/Eastern) — CASE SENSITIVE!",
+                        required = true,
+                        autocomplete = true,
+                    },
+                    {
+                        type = optionType.string,
+                        name = "time",
+                        description = "The time to convert (eg. 12:00 pm)",
+                        required = true,
+                    },
+                },
+            },
+            {
+                type = optionType.subCommand,
+                name = "from_user",
+                description = "Convert a time from another user's timezone",
+                options = {
+                    {
+                        type = optionType.user,
+                        name = "user",
+                        description = "The user to use the timezone of",
+                        required = true,
+                    },
+                    {
+                        type = optionType.string,
+                        name = "time",
+                        description = "The time to convert (eg. 12:00 pm)",
+                        required = true,
                     },
                 },
             },
@@ -226,52 +243,77 @@ client:on("slashCommand", function(interaction, command, args)
             if args.get then
                 local timezone = db.getUserTimezone(interaction.user.id)
                 if timezone then
-                    replyEphemeral(interaction, "Your timezone is `"..timezone.."`. "..getTimezoneCheckString(timezone), colors.info)
+                    replyTo(interaction, "Your timezone is `"..timezone.."`. "..getTimezoneCheckString(timezone), colors.info)
                 else
-                    replyEphemeral(interaction, "Your timezone is not set.", colors.info)
+                    replyTo(interaction, "Your timezone is not set.", colors.info)
                 end
             elseif args.clear then
                 local timezone = db.getUserTimezone(interaction.user.id)
                 if timezone then
                     db.clearUserTimezone(interaction.user.id)
-                    replyEphemeral(interaction, "Cleared your timezone (it was `"..timezone.."`).", colors.success)
+                    replyTo(interaction, "Cleared your timezone (it was `"..timezone.."`).", colors.success)
                 else
-                    replyEphemeral(interaction, "Your timezone is not set.", colors.failure)
+                    replyTo(interaction, "Your timezone is not set.", colors.failure)
                 end
             elseif args.list then
-                replyEphemeral(interaction, "See [this Wikipedia page](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for a list of valid IANA time zones. The value in the \"TZ database name\" column is what you should use. **Read the notes!** Several of these timezones are similar to normal timezones, but don't properly handle daylight savings (eg. `EDT` is wrong, use `America/New_York` instead). [This page](https://secure.jadeworld.com/JADETech/JADE2020/OnlineDocumentation/content/resources/encyclosys2/jadetimezone_class/ianawindowstimezonemapping.htm) provides common timezone names beside their IANA counterparts.", colors.info)
+                replyTo(interaction, "To easily see your IANA timezone name, visit https://time.is/, click the location name in the top left, and scroll down to the box that starts with \"The IANA time zone identifier\".\n\nSee [this Wikipedia page](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for a list of valid IANA timezones. The value in the \"TZ database name\" column is what you should use. Read the notes! Some places don't do Daylight Savings Time (eg. `US/Arizona` vs `US/Mountain`). Also, some of the more confusing timezones on this list have been removed from the bot.", colors.info)
             elseif args.set then
                 local newTimezone = args.set.timezone
                 local oldTimezone = db.getUserTimezone(interaction.user.id)
 
                 if newTimezone == oldTimezone then
-                    replyEphemeral(interaction, "Your timezone is already `"..newTimezone.."`. "..getTimezoneCheckString(newTimezone), colors.failure)
+                    replyTo(interaction, "Your timezone is already `"..newTimezone.."`. "..getTimezoneCheckString(newTimezone), colors.failure)
                     return
                 end
 
-                local isValid = pcall(tz.type, nil, newTimezone)
-                if isValid then
-                    db.setUserTimezone(interaction.user.id, newTimezone)
-                    replyEphemeral(interaction, "Your timezone is now `"..newTimezone.."`. "..getTimezoneCheckString(newTimezone), colors.success)
-                else
-                    replyEphemeral(interaction, "`"..newTimezone.."` is not a valid timezone.", colors.failure)
-                end
-            else
-                error("Unhandled argument: "..pp.dump(command))
+                if not validateTimezoneOrReply(newTimezone, interaction) then return end
+
+                db.setUserTimezone(interaction.user.id, newTimezone)
+                replyTo(interaction, "Your timezone is now `"..newTimezone.."`. "..getTimezoneCheckString(newTimezone), colors.success)
             end
-        else
-            error("Unhandled command: "..pp.dump(command))
+        elseif command.name == "time" then
+            if args.from then
+                local timezone = args.from.timezone
+                local time = args.from.time
+
+                if not validateTimezoneOrReply(timezone, interaction) then return end
+
+                local lines = parser.parseTimes(time, timezone, true)
+                if #lines > 0 then
+                    replyTo(interaction, "Using the timezone `"..timezone.."`:\n"..table.concat(lines, "\n"), colors.success, false)
+                else
+                    replyTo(interaction, "`"..args.from.time.."` does not contain a valid time.", colors.failure)
+                end
+            elseif args.from_user then
+                local user = args.from_user.user
+                local timezone = db.getUserTimezone(user.id)
+                local time = args.from_user.time
+
+                if not timezone then
+                    replyTo(interaction, user.mentionString.." does not have a timezone set.", colors.failure)
+                    return
+                end
+
+                if not validateTimezoneOrReply(timezone, interaction) then return end
+
+                local lines = parser.parseTimes(time, timezone, true)
+                if #lines > 0 then
+                    replyTo(interaction, "Using "..user.mentionString.."'s timezone:\n"..table.concat(lines, "\n"), colors.success, false)
+                else
+                    replyTo(interaction, "`"..args.from_user.time.."` does not contain a valid time.", colors.failure)
+                end
+            end
         end
     end, debug.traceback)
     if not success then
-        replyEphemeral(interaction, "The bot encountered an error while trying to process your command. This error has been automatically reported, and we're looking into it. Sorry for the inconvenience!", colors.failure)
+        replyTo(interaction, "The bot encountered an error while trying to process your command. This error has been automatically reported, and we're looking into it. Sorry for the inconvenience!", colors.failure)
         logError(interaction.guild, err)
     end
 end)
 
 client:on("slashCommandAutocomplete", function(interaction, command, focusedOption, args)
     local success, err = xpcall(function()
-        if command.name == "timezone" and args.set then
+        if focusedOption.name == "timezone" then
             local words = autocomplete.search(focusedOption.value, 25)
             local results = {}
             for _, word in ipairs(words) do
@@ -302,7 +344,7 @@ client:on("messageUpdate", function(message)
             local timezone = db.getUserTimezone(message.author.id)
             if not timezone then return end
 
-            local lines = parseTimes(message.content:lower(), timezone)
+            local lines = parser.parseTimes(message.content, timezone)
             if #lines == 0 then
                 timeMessages[message.id] = nil -- allow sending a new message in the future
                 reply:delete()
@@ -318,11 +360,13 @@ end)
 client:on("messageDelete", function(message)
     local success, err = xpcall(function()
         local replyId = timeMessages[message.id]
-        timeMessages[message.id] = nil
+        if replyId then
+            timeMessages[message.id] = nil
 
-        local reply = message.channel:getMessage(replyId)
-        if reply then
-            reply:delete()
+            local reply = message.channel:getMessage(replyId)
+            if reply then
+                reply:delete()
+            end
         end
     end, debug.traceback)
     if not success then logError(message.guild, err) end

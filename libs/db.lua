@@ -23,7 +23,7 @@ local stmts = {
 local db = {}
 
 ---@param id string
----@return string timezone
+---@return string? timezone
 db.getUserTimezone = function(id)
     local resultset = stmts.getUserTimezone:reset():bind(id):resultset()
     return resultset and resultset.timezone[1]

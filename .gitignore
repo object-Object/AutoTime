@@ -13,3 +13,4 @@ options.lua
 # for Sumneko's Lua
 .vscode/**/*
 !.vscode/settings.json
+discordia.lua

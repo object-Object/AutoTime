@@ -1,9 +1,47 @@
 ---@type discordia
 local discordia = require("discordia")
-local split = discordia.extensions.string.split
+discordia.extensions()
+
+local function inverted(tbl)
+    local output = {}
+    for _, v in pairs(tbl) do
+        output[v] = true
+    end
+    return output
+end
+
+local function filtered(tbl, predicate)
+    local output = {}
+    for _, v in ipairs(tbl) do
+        if predicate(v) then
+            table.insert(output, v)
+        end
+    end
+    return output
+end
+
+-- easily confused timezones that don't need to be in the list
+local ignoreTimezones = inverted{
+    "CET",
+    "CST6CDT",
+    "EET",
+    "EST",
+    "EST5EDT",
+    "Factory",
+    "HST",
+    "MET",
+    "MST",
+    "MST7MDT",
+    "PST8PDT",
+    "WET",
+}
 
 local handle = io.popen("awk '/^Z/ { print $2 }; /^L/ { print $3 }' /usr/share/zoneinfo/tzdata.zi")
-local allTimezones = split(assert(handle, "Failed to get list of timezones"):read("*a"):gsub("\n$", "", nil), "\n")
+local allTimezones = assert(handle, "Failed to get list of timezones"):read("*a"):gsub("\n$", "", nil):split("\n")
+allTimezones = filtered(allTimezones, function(timezone)
+    return not (timezone:startswith("Etc/") or timezone:startswith("SystemV/") or ignoreTimezones[timezone])
+end)
+---@diagnostic disable-next-line: need-check-nil
 handle:close()
 
 local prefixesMap, noPrefixes = {}, {}
@@ -20,9 +58,9 @@ for prefix in pairs(prefixesMap) do
     table.insert(prefixes, prefix)
 end
 
-table.sort(allTimezones, nil)
-table.sort(prefixes, nil)
-table.sort(noPrefixes, nil)
+table.sort(allTimezones)
+table.sort(prefixes)
+table.sort(noPrefixes)
 
 ---@param values string[]
 ---@return table
@@ -30,7 +68,7 @@ local function buildSearch(values)
     local output = {}
     for _, value in ipairs(values) do
         local lowerValue = value:lower()
-        local chars = split(value)
+        local chars = value:split()
 
         for i1 = 1, #chars do
             for i2 = i1, #chars do
@@ -61,6 +99,13 @@ local function addValues(words, maxValues, values, isPrefix)
 end
 
 local autocomplete = {}
+
+autocomplete.validTimezones = inverted(allTimezones)
+
+autocomplete.fromLowercase = {}
+for _, timezone in pairs(allTimezones) do
+    autocomplete.fromLowercase[timezone:lower()] = timezone
+end
 
 ---@param value string
 ---@param maxValues number?
