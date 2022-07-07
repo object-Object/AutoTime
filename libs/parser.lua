@@ -14,18 +14,18 @@ end
 ---@param content string
 ---@param timezone string
 ---@param ignoreLineTimezones boolean?
----@return string[]
+---@return string | false
 parser.parseTimes = function(content, timezone, ignoreLineTimezones)
     local lines = {}
-    local patt = "(?<!\\w)((?:(?:([012]?\\d):(\\d\\d)(?::(\\d\\d))? *(?:([apAP])\\.?[mM]\\.?)?)|(?:([01]?\\d) *([apAP])\\.?[mM]\\.?))(?: +([a-zA-Z\\/\\_]+))?)(?!\\w)"
-    for original, hour, min, sec, ampm, hourAlt, ampmAlt, lineTimezone in rex.gmatch(content, patt, "m") do
+    local patt = [[(?<!\w)((?:(?:([012]?\d):(\d\d)(?::(\d\d))? *(?:([ap])\.?m\.?)?)|(?:([01]?\d) *([ap])\.?m\.?))(?: +([a-z\/\_]+))?)(?!\w)]]
+    for original, hour, min, sec, ampm, hourAlt, ampmAlt, lineTimezone in rex.gmatch(content, patt, "mi") do
         local showSeconds = not not sec
-        
+
         hour = tonumber(hour) or tonumber(hourAlt) -- if hour is missing, the regex doesn't match
         min = tonumber(min) or 0
         sec = tonumber(sec) or 0
         ampm = ampm or ampmAlt
-        
+
         local aliasTimezone
         local tzTimezone = timezone
         if lineTimezone then
@@ -75,7 +75,7 @@ parser.parseTimes = function(content, timezone, ignoreLineTimezones)
 
         ::continue::
     end
-    return lines
+    return #lines > 0 and table.concat(lines, "\n")
 end
 
 return parser

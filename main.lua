@@ -54,12 +54,12 @@ local function replyWithTimestamps(message)
     local timezone = db.getUserTimezone(message.author.id)
     if not timezone then return end
 
-    local lines = parser.parseTimes(message.content, timezone)
-    if #lines == 0 then return end
+    local parsedTimes = parser.parseTimes(message.content, timezone)
+    if not parsedTimes then return end
 
     local reply = message:reply{
-        content = table.concat(lines, "\n"),
-        reference = message and {
+        content = parsedTimes,
+        reference = {
             message = message,
             mention = false
         }
@@ -242,21 +242,26 @@ client:on("slashCommand", function(interaction, command, args)
         if command.name == "timezone" then
             if args.get then
                 local timezone = db.getUserTimezone(interaction.user.id)
-                if timezone then
-                    replyTo(interaction, "Your timezone is `"..timezone.."`. "..getTimezoneCheckString(timezone), colors.info)
-                else
+                if not timezone then
                     replyTo(interaction, "Your timezone is not set.", colors.info)
+                    return
                 end
+
+                replyTo(interaction, "Your timezone is `"..timezone.."`. "..getTimezoneCheckString(timezone), colors.info)
+
             elseif args.clear then
                 local timezone = db.getUserTimezone(interaction.user.id)
-                if timezone then
-                    db.clearUserTimezone(interaction.user.id)
-                    replyTo(interaction, "Cleared your timezone (it was `"..timezone.."`).", colors.success)
-                else
+                if not timezone then
                     replyTo(interaction, "Your timezone is not set.", colors.failure)
+                    return
                 end
+
+                db.clearUserTimezone(interaction.user.id)
+                replyTo(interaction, "Cleared your timezone (it was `"..timezone.."`).", colors.success)
+
             elseif args.list then
                 replyTo(interaction, "To easily see your IANA timezone name, visit https://time.is/, click the location name in the top left, and scroll down to the box that starts with \"The IANA time zone identifier\".\n\nSee [this Wikipedia page](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) for a list of valid IANA timezones. The value in the \"TZ database name\" column is what you should use. Read the notes! Some places don't do Daylight Savings Time (eg. `US/Arizona` vs `US/Mountain`). Also, some of the more confusing timezones on this list have been removed from the bot.", colors.info)
+
             elseif args.set then
                 local newTimezone = args.set.timezone
                 local oldTimezone = db.getUserTimezone(interaction.user.id)
@@ -271,6 +276,7 @@ client:on("slashCommand", function(interaction, command, args)
                 db.setUserTimezone(interaction.user.id, newTimezone)
                 replyTo(interaction, "Your timezone is now `"..newTimezone.."`. "..getTimezoneCheckString(newTimezone), colors.success)
             end
+
         elseif command.name == "time" then
             if args.from then
                 local timezone = args.from.timezone
@@ -278,12 +284,14 @@ client:on("slashCommand", function(interaction, command, args)
 
                 if not validateTimezoneOrReply(timezone, interaction) then return end
 
-                local lines = parser.parseTimes(time, timezone, true)
-                if #lines > 0 then
-                    replyTo(interaction, "Using the timezone `"..timezone.."`:\n"..table.concat(lines, "\n"), colors.success, false)
-                else
+                local parsedTimes = parser.parseTimes(time, timezone, true)
+                if not parsedTimes then
                     replyTo(interaction, "`"..args.from.time.."` does not contain a valid time.", colors.failure)
+                    return
                 end
+
+                replyTo(interaction, "Using the timezone `"..timezone.."`:\n"..parsedTimes, colors.success, false)
+
             elseif args.from_user then
                 local user = args.from_user.user
                 local timezone = db.getUserTimezone(user.id)
@@ -296,12 +304,13 @@ client:on("slashCommand", function(interaction, command, args)
 
                 if not validateTimezoneOrReply(timezone, interaction) then return end
 
-                local lines = parser.parseTimes(time, timezone, true)
-                if #lines > 0 then
-                    replyTo(interaction, "Using "..user.mentionString.."'s timezone:\n"..table.concat(lines, "\n"), colors.success, false)
-                else
+                local parsedTimes = parser.parseTimes(time, timezone, true)
+                if not parsedTimes then
                     replyTo(interaction, "`"..args.from_user.time.."` does not contain a valid time.", colors.failure)
+                    return
                 end
+
+                replyTo(interaction, "Using "..user.mentionString.."'s timezone:\n"..parsedTimes, colors.success, false)
             end
         end
     end, debug.traceback)
@@ -336,22 +345,24 @@ client:on("messageUpdate", function(message)
     local success, err = xpcall(function()
         local replyId = timeMessages[message.id]
         if replyId == false then return end -- they hit the x, don't send a new message
-        
+
         local reply = message.channel:getMessage(replyId)
         if not reply then -- no time message exists, send a new one as if it were a new message
             replyWithTimestamps(message)
-        else
-            local timezone = db.getUserTimezone(message.author.id)
-            if not timezone then return end
-
-            local lines = parser.parseTimes(message.content, timezone)
-            if #lines == 0 then
-                timeMessages[message.id] = nil -- allow sending a new message in the future
-                reply:delete()
-            else
-                reply:setContent(table.concat(lines, "\n"))
-            end
+            return
         end
+
+        local timezone = db.getUserTimezone(message.author.id)
+        if not timezone then return end
+
+        local parsedTimes = parser.parseTimes(message.content, timezone)
+        if not parsedTimes then
+            timeMessages[message.id] = nil -- allow sending a new message in the future
+            reply:delete()
+            return
+        end
+
+        reply:setContent(parsedTimes)
     end, debug.traceback)
     if not success then logError(message.guild, err) end
 end)
@@ -360,14 +371,14 @@ end)
 client:on("messageDelete", function(message)
     local success, err = xpcall(function()
         local replyId = timeMessages[message.id]
-        if replyId then
-            timeMessages[message.id] = nil
+        if not replyId then return end
 
-            local reply = message.channel:getMessage(replyId)
-            if reply then
-                reply:delete()
-            end
-        end
+        timeMessages[message.id] = nil
+
+        local reply = message.channel:getMessage(replyId)
+        if not reply then return end
+        
+        reply:delete()
     end, debug.traceback)
     if not success then logError(message.guild, err) end
 end)
