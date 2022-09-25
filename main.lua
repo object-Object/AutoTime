@@ -340,13 +340,26 @@ client:on("messageCreate", function(message)
     if not success then logError(message.guild, err) end
 end)
 
----@param message Message
-client:on("messageUpdate", function(message)
-    local success, err = xpcall(function()
-        local replyId = timeMessages[message.id]
-        if replyId == false then return end -- they hit the x, don't send a new message
+local function getReply(message)
+    local replyId = timeMessages[message.id]
+    if replyId == false then return false end -- they hit the x, don't send a new message
 
-        local reply = message.channel:getMessage(replyId)
+    if replyId then -- return cached message
+        return message.channel:getMessage(replyId)
+    else -- not cached, check following messages to see if we replied already
+        for m in message.channel:getMessagesAfter(message, 3):iter() do
+            if m.author == client.user and m.referencedMessage == message then
+                timeMessages[message.id] = m.id
+                return m
+            end
+        end
+    end
+end
+
+local onMessageUpdate = function(message)
+    local success, err = xpcall(function()
+        local reply = getReply(message)
+        if reply == false then return end
         if not reply then -- no time message exists, send a new one as if it were a new message
             replyWithTimestamps(message)
             return
@@ -365,19 +378,21 @@ client:on("messageUpdate", function(message)
         reply:setContent(parsedTimes)
     end, debug.traceback)
     if not success then logError(message.guild, err) end
+end
+
+client:on("messageUpdateUncached", function(channel, messageId)
+    onMessageUpdate(channel:getMessage(messageId))
 end)
+
+---@param message Message
+client:on("messageUpdate", onMessageUpdate)
 
 ---@param message Message
 client:on("messageDelete", function(message)
     local success, err = xpcall(function()
-        local replyId = timeMessages[message.id]
-        if not replyId then return end
-
+        local reply = getReply(message)
         timeMessages[message.id] = nil
-
-        local reply = message.channel:getMessage(replyId)
         if not reply then return end
-        
         reply:delete()
     end, debug.traceback)
     if not success then logError(message.guild, err) end
